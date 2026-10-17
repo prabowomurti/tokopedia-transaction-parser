@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local data & outputs (may contain personal purchase history)
+*.pdf
+*.xlsx
+!examples/.gitkeep
+output/
+data/
