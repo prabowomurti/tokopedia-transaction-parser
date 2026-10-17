@@ -42,8 +42,8 @@ python parse_tokopedia_trx.py /path/to/TrxTokopedia.pdf -o output/hasil.xlsx
 ## Open in Cursor IDE
 
 ```bash
-cursor /Users/prab/Downloads/tokopedia-trx-parser
-# atau: File → Open Folder → pilih folder ini
+cursor .
+# atau di Cursor IDE: File → Open Folder → pilih folder tokopedia-trx-parser
 ```
 
 ## Push ke GitHub
