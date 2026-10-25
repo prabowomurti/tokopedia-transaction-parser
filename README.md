@@ -34,8 +34,9 @@ python parse_tokopedia_trx.py /path/to/TrxTokopedia.pdf -o output/hasil.xlsx
 ## Notes
 
 - **Jangan commit PDF/XLSX** yang berisi data pribadi. Sudah di-ignore di `.gitignore`.
-- Nilai multi-item diambil dari `@Rp × qty` bila ada; kalau tidak, pakai `Jumlah Total`.
-- `Jumlah Total` invoice bisa berbeda dari jumlah item (ongkir / diskon / biaya layanan).
+- Satu barang dengan `@Rp`: `Nilai` = `Jumlah Total` bila lebih kecil (diskon). Bila lebih besar, tetap `@Rp`.
+- Satu barang tanpa `@Rp`: `Nilai` = `Jumlah Total`.
+- Multi-item: tiap barang `@Rp × qty`. Bila `Jumlah Total` lebih kecil, baris berikutnya adalah `Potongan harga (tidak teralokasi)` (kategori Penyesuaian). Selisih positif (ongkir / biaya layanan) tidak dicantumkan.
 - No. Invoice = baris invoice tepat **sebelum** `Status` order.
 - Kategori otomatis berbasis kata kunci di `CAT_RULES` — silakan edit / koreksi manual di Excel.
 

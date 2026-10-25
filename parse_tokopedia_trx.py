@@ -481,8 +481,11 @@ def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
     ws3["A1"].font = Font(name="Arial", bold=True, size=11)
     notes = [
         "Sumber: export PDF Riwayat Transaksi Tokopedia (Laporan Data Pengguna).",
-        "1 barang = 1 baris. Multi-item: nilai dari @Rp × qty. Single tanpa @Rp: Jumlah Total.",
-        "Jumlah Total invoice bisa beda dari sum item (ongkir/diskon/biaya layanan).",
+        "1 barang dengan @Rp: Nilai = Jumlah Total bila lebih kecil (diskon). Bila lebih besar, tetap @Rp.",
+        "1 barang tanpa @Rp: Nilai = Jumlah Total.",
+        "Multi-item: tiap barang @Rp × qty. Bila Jumlah Total lebih kecil, baris berikutnya "
+        "adalah Potongan harga (tidak teralokasi), kategori Penyesuaian.",
+        "Selisih positif (ongkir / biaya layanan) tidak dicantumkan.",
         "No. Invoice = baris invoice tepat sebelum Status order.",
         "Baris Tidak Berhasil di-highlight merah muda.",
         "Kategori otomatis (kata kunci); koreksi manual di kolom Kategori bila perlu.",
