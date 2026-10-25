@@ -63,12 +63,15 @@ CAT_RULES: list[tuple[str, list[str]]] = [
     ),
     (
         "Tagihan / Token",
-        [r"\b(token listrik|token pln|\bpln\b|pdam|bpjs|tagihan|pascabayar)\b"],
+        [
+            r"\b(token listrik|token pln|\bpln\b|pdam|bpjs|tagihan|pascabayar|"
+            r"kota tangerang|tirta benteng)\b"
+        ],
     ),
     (
         "Transportasi / Parkir",
         [
-            r"\b(parkir|toll|\btol\b|grab|gojek|kota tangerang|e-?money|"
+            r"\b(parkir|toll|\btol\b|grab|gojek|e-?money|"
             r"flazz|brizzi|jakcard)\b"
         ],
     ),
