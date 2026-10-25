@@ -158,6 +158,9 @@ HEADERS = [
     "Status",
 ]
 
+ADJUSTMENT_NAME = "Potongan harga (tidak teralokasi)"
+ADJUSTMENT_CATEGORY = "Penyesuaian"
+
 RP_NUMBER_FORMAT = "#,##0"
 
 # Suffix-only: a leading (.*?) next to \s* backtracks super-linearly.
@@ -266,14 +269,32 @@ def parse_products(prod_text: str) -> list[tuple[str, int | None]]:
 
 def _resolve_item_values(
     products: list[tuple[str, int | None]], total: int
-) -> list[tuple[str, int]]:
-    """Fill missing item prices. A lone item uses the order total; multi-item gaps stay 0."""
+) -> list[tuple[str, int, str | None]]:
+    """Return (name, value, category override).
+
+    One item with @Rp: Jumlah Total wins when it is lower (discount on that
+    item). A higher total is shipping or a fee, so the catalog price stays.
+    One item without @Rp uses Jumlah Total.
+
+    Several items keep @Rp × qty. A lower Jumlah Total is one negative row
+    after those items; which item was discounted is unknown. A higher total
+    is left off the sheet.
+    """
     if len(products) == 1:
         name, value = products[0]
-        return [(name, total if value is None else value)]
-    if len(products) > 1:
-        return [(name, 0 if value is None else value) for name, value in products]
-    return []
+        if value is None or total < value:
+            return [(name, total, None)]
+        return [(name, value, None)]
+    if not products:
+        return []
+
+    rows = [(name, 0 if value is None else value, None) for name, value in products]
+    if any(value is None for _, value in products):
+        return rows
+    gap = total - sum(value for _, value, _ in rows)
+    if gap < 0:
+        rows.append((ADJUSTMENT_NAME, gap, ADJUSTMENT_CATEGORY))
+    return rows
 
 
 def parse_transactions(text: str) -> tuple[list[dict], dict]:
@@ -298,11 +319,11 @@ def parse_transactions(text: str) -> tuple[list[dict], dict]:
         total = parse_rp(total_raw)
         status_counter[status] += 1
 
-        for name, nilai in _resolve_item_values(parse_products(prod_text), total):
+        for name, nilai, kategori in _resolve_item_values(parse_products(prod_text), total):
             rows.append(
                 {
                     "tanggal": tanggal,
-                    "kategori": categorize(name),
+                    "kategori": kategori or categorize(name),
                     "nama": name,
                     "nilai": nilai,
                     "invoice": invoice,
