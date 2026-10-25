@@ -155,6 +155,13 @@ HEADERS = [
     "Status",
 ]
 
+RP_NUMBER_FORMAT = "#,##0"
+
+# Suffix-only: a leading (.*?) next to \s* backtracks super-linearly.
+_QTY_PRICE_RE = re.compile(r"\(x(\d+)\)\s*@Rp([\d.]+)\s*$")
+_PRICE_RE = re.compile(r"@Rp([\d.]+)\s*$")
+_QTY_RE = re.compile(r"\(x(\d+)\)\s*$")
+
 
 def extract_text(pdf_path: Path) -> str:
     reader = PdfReader(str(pdf_path))
@@ -196,27 +203,36 @@ def categorize(name: str) -> str:
 
 
 def _one_item(rest: str) -> tuple[str, int | None]:
-    m = re.search(r"^(.*?)\s*\(x(\d+)\)\s*@Rp([\d.]+)\s*$", rest)
+    m = _QTY_PRICE_RE.search(rest)
     if m:
-        name, qty, unit = m.group(1).strip(), int(m.group(2)), parse_rp(m.group(3))
+        name = rest[: m.start()].strip()
+        qty, unit = int(m.group(1)), parse_rp(m.group(2))
         return name + f" (x{qty})", unit * qty
 
-    m = re.search(r"^(.*?)\s*@Rp([\d.]+)\s*$", rest)
+    m = _PRICE_RE.search(rest)
     if m:
-        name = m.group(1).strip()
-        qm = re.search(r"\(x(\d+)\)\s*$", name)
+        name = rest[: m.start()].strip()
+        qm = _QTY_RE.search(name)
         if qm:
             qty = int(qm.group(1))
-            name_clean = re.sub(r"\s*\(x\d+\)\s*$", "", name).strip()
-            unit = parse_rp(m.group(2))
+            name_clean = name[: qm.start()].strip()
+            unit = parse_rp(m.group(1))
             return name_clean + f" (x{qty})", unit * qty
-        return name, parse_rp(m.group(2))
+        return name, parse_rp(m.group(1))
 
-    m = re.search(r"^(.*?)\s*\(x(\d+)\)\s*$", rest)
+    m = _QTY_RE.search(rest)
     if m:
-        return m.group(1).strip() + f" (x{m.group(2)})", None
+        return rest[: m.start()].strip() + f" (x{m.group(1)})", None
 
     return rest, None
+
+
+def _indexed_item_body(line: str) -> str | None:
+    """Text after a leading '12. ' index. None when the line is not indexed."""
+    m = re.match(r"\d+\.\s", line)
+    if m is None:
+        return None
+    return line[m.end() :].strip()
 
 
 def parse_products(prod_text: str) -> list[tuple[str, int | None]]:
@@ -236,13 +252,25 @@ def parse_products(prod_text: str) -> list[tuple[str, int | None]]:
     if any(re.match(r"^\d+\.\s", j) for j in joined):
         items: list[tuple[str, int | None]] = []
         for j in joined:
-            m = re.match(r"^\d+\.\s+(.*)$", j)
-            if m:
-                items.append(_one_item(m.group(1).strip()))
+            body = _indexed_item_body(j)
+            if body is not None:
+                items.append(_one_item(body))
         return items
 
     full = re.sub(r"\s+", " ", " ".join(joined)).strip()
     return [_one_item(full)]
+
+
+def _resolve_item_values(
+    products: list[tuple[str, int | None]], total: int
+) -> list[tuple[str, int]]:
+    """Fill missing item prices. A lone item uses the order total; multi-item gaps stay 0."""
+    if len(products) == 1:
+        name, value = products[0]
+        return [(name, total if value is None else value)]
+    if len(products) > 1:
+        return [(name, 0 if value is None else value) for name, value in products]
+    return []
 
 
 def parse_transactions(text: str) -> tuple[list[dict], dict]:
@@ -267,15 +295,7 @@ def parse_transactions(text: str) -> tuple[list[dict], dict]:
         total = parse_rp(total_raw)
         status_counter[status] += 1
 
-        products = parse_products(prod_text)
-        if len(products) == 1 and products[0][1] is None:
-            products = [(products[0][0], total)]
-        elif len(products) > 1:
-            products = [(n, v if v is not None else 0) for n, v in products]
-
-        for name, nilai in products:
-            if nilai is None:
-                nilai = total
+        for name, nilai in _resolve_item_values(parse_products(prod_text), total):
             rows.append(
                 {
                     "tanggal": tanggal,
@@ -297,30 +317,7 @@ def parse_transactions(text: str) -> tuple[list[dict], dict]:
     return rows, meta
 
 
-def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Trx Tokopedia"
-
-    header_font = Font(name="Arial", bold=True, size=11, color="FFFFFF")
-    body_font = Font(name="Arial", size=10)
-    header_fill = PatternFill("solid", fgColor="333333")
-    fail_fill = PatternFill("solid", fgColor="FFE8E8")
-    thin = Border(
-        left=Side(style="thin", color="CCCCCC"),
-        right=Side(style="thin", color="CCCCCC"),
-        top=Side(style="thin", color="CCCCCC"),
-        bottom=Side(style="thin", color="CCCCCC"),
-    )
-
-    ws.append(HEADERS)
-    for col in range(1, len(HEADERS) + 1):
-        cell = ws.cell(1, col)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = thin
-
+def _write_item_rows(ws, rows: list[dict], body_font: Font, thin: Border, fail_fill: PatternFill) -> None:
     for idx, r in enumerate(rows, start=1):
         ws.append(
             [
@@ -342,25 +339,10 @@ def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
             if r["status"] != "Berhasil":
                 cell.fill = fail_fill
         ws.cell(row_i, 1).alignment = Alignment(horizontal="center")
-        ws.cell(row_i, 5).number_format = "#,##0"
+        ws.cell(row_i, 5).number_format = RP_NUMBER_FORMAT
 
-    widths = {
-        "A": 6,
-        "B": 12,
-        "C": 22,
-        "D": 70,
-        "E": 12,
-        "F": 30,
-        "G": 24,
-        "H": 14,
-    }
-    for col, w in widths.items():
-        ws.column_dimensions[col].width = w
-    ws.auto_filter.ref = f"A1:H{len(rows) + 1}"
-    ws.freeze_panes = "A2"
 
-    # Ringkasan
-    ws2 = wb.create_sheet("Ringkasan")
+def _write_summary(ws2, rows: list[dict], meta: dict, body_font: Font) -> None:
     ws2["A1"] = "Ringkasan Trx Tokopedia"
     ws2["A1"].font = Font(name="Arial", bold=True, size=12)
     ws2["A3"] = "Total baris item"
@@ -401,7 +383,7 @@ def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
         ws2[f"A{i}"] = cat
         ws2[f"B{i}"] = n
         ws2[f"C{i}"] = s
-        ws2[f"C{i}"].number_format = "#,##0"
+        ws2[f"C{i}"].number_format = RP_NUMBER_FORMAT
         for col in "ABC":
             ws2[f"{col}{i}"].font = body_font
 
@@ -414,7 +396,7 @@ def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
     for i, (cat, s) in enumerate(sorted(cat_ok.items(), key=lambda x: -x[1]), start=11):
         ws2[f"E{i}"] = cat
         ws2[f"F{i}"] = s
-        ws2[f"F{i}"].number_format = "#,##0"
+        ws2[f"F{i}"].number_format = RP_NUMBER_FORMAT
         ws2[f"E{i}"].font = body_font
         ws2[f"F{i}"].font = body_font
 
@@ -423,6 +405,51 @@ def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
     ws2.column_dimensions["C"].width = 18
     ws2.column_dimensions["E"].width = 28
     ws2.column_dimensions["F"].width = 16
+
+
+def write_xlsx(rows: list[dict], meta: dict, out_path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Trx Tokopedia"
+
+    header_font = Font(name="Arial", bold=True, size=11, color="FFFFFF")
+    body_font = Font(name="Arial", size=10)
+    header_fill = PatternFill("solid", fgColor="333333")
+    fail_fill = PatternFill("solid", fgColor="FFE8E8")
+    thin = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+
+    ws.append(HEADERS)
+    for col in range(1, len(HEADERS) + 1):
+        cell = ws.cell(1, col)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin
+
+    _write_item_rows(ws, rows, body_font, thin, fail_fill)
+
+    widths = {
+        "A": 6,
+        "B": 12,
+        "C": 22,
+        "D": 70,
+        "E": 12,
+        "F": 30,
+        "G": 24,
+        "H": 14,
+    }
+    for col, w in widths.items():
+        ws.column_dimensions[col].width = w
+    ws.auto_filter.ref = f"A1:H{len(rows) + 1}"
+    ws.freeze_panes = "A2"
+
+    ws2 = wb.create_sheet("Ringkasan")
+    _write_summary(ws2, rows, meta, body_font)
 
     # Catatan
     ws3 = wb.create_sheet("Catatan")
